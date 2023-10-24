@@ -4,6 +4,11 @@ plugins {
 }
 
 android {
+
+    // 뷰 바인딩을 위함.
+    buildFeatures{
+        viewBinding = true
+    }
     namespace = "com.example.wifidirectconnect"
     compileSdk = 34
 
@@ -36,6 +41,11 @@ android {
 }
 
 dependencies {
+    
+    // 프레그먼트 사용을 위함
+    implementation("androidx.fragment:fragment-ktx:1.6.1")
+    // permission관련 dependency
+    implementation("androidx.activity:activity-ktx:1.8.0")
 
     implementation("androidx.core:core-ktx:1.9.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
