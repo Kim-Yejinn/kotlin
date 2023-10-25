@@ -22,34 +22,9 @@ class WiFiDirectBroadcastReceiver(
         when (action) {
             WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION -> {
                 // 와이파이 다이렉트 활성화 여부 확인
-                
                 // Check to see if Wi-Fi is enabled and notify appropriate activity
-
                 // Connection state changed! We should probably do something about
                 // that.
-
-                mManager?.let { manager ->
-
-                    val wifiP2pInfo: WifiP2pInfo? =
-                        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU){
-                            intent.getParcelableExtra(WifiP2pManager.EXTRA_NETWORK_INFO, WifiP2pInfo::class.java)
-                        }else{
-                            intent.getParcelableExtra(WifiP2pManager.EXTRA_NETWORK_INFO) as? WifiP2pInfo
-                        }
-
-                    // 연결 되었을 경우
-                    if (wifiP2pInfo != null && wifiP2pInfo.groupFormed) {
-                        // 와이파이 다이렉트 연결된 상태
-                        manager.requestConnectionInfo(mChannel, mActivity.connectionListener)
-                    }else{
-                        // 와이파이 연결 안된 상태
-                        if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.Q){
-                           val panelIntent = Intent(Settings.ACTION_WIFI_SETTINGS)
-                        }
-
-                    }
-                }
-
             }
             WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION -> {
                 // 사용가능한 목록이 바뀜을 확인
@@ -63,6 +38,25 @@ class WiFiDirectBroadcastReceiver(
             }
             WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION -> {
                 // 연결상태가 변경됨 / 연결되었는지 아닌지~~
+                mManager?.let { manager ->
+//
+                    val wifiP2pInfo: WifiP2pInfo? =
+                        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU){
+                            intent.getParcelableExtra(WifiP2pManager.EXTRA_WIFI_P2P_INFO, WifiP2pInfo::class.java)
+                        }else{
+                            intent.getParcelableExtra(WifiP2pManager.EXTRA_WIFI_P2P_INFO) as? WifiP2pInfo
+                        }
+//
+                    // 연결 되었을 경우
+                    if (wifiP2pInfo != null && wifiP2pInfo.groupFormed) {
+                        // 와이파이 다이렉트 연결된 상태
+                        mActivity.connectionStatus.text ="Connected"
+                        manager.requestConnectionInfo(mChannel, mActivity.connectionListener)
+                    }else{
+                        // 와이파이 연결 안된 상태
+                        mActivity.connectionStatus.text = "DeviceDisconnecteds"
+                    }
+                }
 
             }
             WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION -> {

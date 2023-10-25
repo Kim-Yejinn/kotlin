@@ -10,14 +10,12 @@ import android.net.wifi.WifiManager
 import android.net.wifi.WpsInfo
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDevice
-import android.net.wifi.p2p.WifiP2pInfo
 import android.net.wifi.p2p.WifiP2pManager
 import android.os.Build
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
-import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -33,15 +31,21 @@ class MainActivity : AppCompatActivity(){
     private lateinit var WifiManager: WifiManager
     private lateinit var mManager:WifiP2pManager
     private lateinit var mChannel: WifiP2pManager.Channel
+
+
+
     private lateinit var mReceiver: BroadcastReceiver
     private lateinit var mIntentFilter: IntentFilter
 
     private lateinit var btnConnect:Button
-    private lateinit var btnDisCover:Button
+    private lateinit var btnDiscover:Button
+    private lateinit var btnSend:Button
+
     private lateinit var recyclerView: RecyclerView
     private lateinit var textStatus: TextView
-    private lateinit var textWiFiStatus: TextView
+    lateinit var textWiFiStatus: TextView
     private lateinit var writeMsg: EditText
+    lateinit var connectionStatus:TextView
 
     private val peers = mutableListOf<WifiP2pDevice>()
 
@@ -50,7 +54,7 @@ class MainActivity : AppCompatActivity(){
     private val binding by lazy { ActivityMainBinding.inflate(layoutInflater) }
 
 
-    lateinit var activityResult:ActivityResultLauncher<String>
+    private lateinit var activityResult:ActivityResultLauncher<String>
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
@@ -58,48 +62,47 @@ class MainActivity : AppCompatActivity(){
 
         // 와이파이 리시버 등록
         // 수신받을 것들
-        mIntentFilter = IntentFilter()
-        mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
-        mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
-        mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
-        mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION)
 
         // 버튼과 연결
         btnConnect = findViewById(R.id.btnConnect)
-        btnDisCover = findViewById(R.id.btnDiscover)
+        btnDiscover = findViewById(R.id.btnDiscover)
+        btnSend = findViewById(R.id.btnSend)
         recyclerView = findViewById(R.id.recyclerView)
         textStatus = findViewById(R.id.textStatus)
         textWiFiStatus = findViewById(R.id.textWiFiStatus)
         writeMsg = findViewById(R.id.writeMsg)
-
-
-        // 와이 파이 매니저로 주변 피어 검색하거나 원하는 것 찾기 가능
-        mManager = getSystemService(Context.WIFI_P2P_SERVICE) as WifiP2pManager
-        mChannel = mManager.initialize(this, mainLooper, null)
-
-
-        WifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-        mReceiver=  WiFiDirectBroadcastReceiver(mManager, mChannel, this )
+        connectionStatus = findViewById(R.id.connectionStatus)
 
 
         //초기에 location은 permission 신청해야 함
         activityResult = registerForActivityResult(ActivityResultContracts.RequestPermission()){}
         activityResult.launch(Manifest.permission.ACCESS_FINE_LOCATION)
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            activityResult.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+        }
 
+        // 와이 파이 매니저로 주변 피어 검색하거나 원하는 것 찾기 가능
+        mManager = getSystemService(Context.WIFI_P2P_SERVICE) as WifiP2pManager
+        mChannel = mManager.initialize(this, mainLooper, null)
 
-        // 어댑터 관련 설정
-//        var tempData = loadData()
-//        // 값을 넣어야 하는데?
-//        listAdapter.listData = tempData
+        mIntentFilter = IntentFilter()
+        mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
+        mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
+        mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
+        mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION)
+
+        WifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        mReceiver=  WiFiDirectBroadcastReceiver(mManager, mChannel, this )
 
         binding.recyclerView.adapter = listAdapter
         binding.recyclerView.layoutManager =LinearLayoutManager(this)
 
-
         // 클릭 이벤트
         btnConnect.setOnClickListener{onClickConnect()}
-        btnDisCover.setOnClickListener{onClickDiscover()}
+        btnDiscover.setOnClickListener{onClickDiscover()}
+        btnSend.setOnClickListener{}
+
     }
 
     override fun onResume() {
@@ -116,10 +119,10 @@ class MainActivity : AppCompatActivity(){
             unregisterReceiver(receiver)
         }
     }
-    fun connect() {
-        // Picking the first device found on the network.
-        val device = peers[0]
 
+    fun wifiConnect(device:WifiP2pDevice) {
+//        // Picking the first device found on the network.
+//        // 클릭한 번호의 기기를 연결하자
         val config = WifiP2pConfig().apply {
             deviceAddress = device.deviceAddress
             wps.setup = WpsInfo.PBC
@@ -133,12 +136,16 @@ class MainActivity : AppCompatActivity(){
                 Manifest.permission.NEARBY_WIFI_DEVICES
             ) != PackageManager.PERMISSION_GRANTED
         ) {
-            return
         }
+        Log.d("test", "제발좀되라")
+        
         mManager.connect(mChannel, config, object : WifiP2pManager.ActionListener {
 
             override fun onSuccess() {
-                // WiFiDirectBroadcastReceiver notifies us. Ignore for now.
+                Toast.makeText(this@MainActivity, "success",Toast.LENGTH_LONG).show()
+                Log.d("test", "여긴가 성공")    
+            
+            // WiFiDirectBroadcastReceiver notifies us. Ignore for now.
             }
 
             override fun onFailure(reason: Int) {
@@ -147,6 +154,7 @@ class MainActivity : AppCompatActivity(){
                     "Connect failed. Retry.",
                     Toast.LENGTH_SHORT
                 ).show()
+                Log.d("test", "여기일지도 실패")
             }
         })
     }
@@ -161,14 +169,17 @@ class MainActivity : AppCompatActivity(){
             // Do whatever tasks are specific to the group owner.
             // One common case is creating a group owner thread and accepting
             // incoming connections.
+            connectionStatus.text = "server"
+
         } else if (info.groupFormed) {
             // The other device acts as the peer (client). In this case,
             // you'll want to create a peer thread that connects
             // to the group owner.
+            connectionStatus.text = "client"
         }
     }
 
-    fun onClickConnect(){
+    private fun onClickConnect(){
         // 연결 되었을 경우
         if (WifiManager.isWifiEnabled) {
             textWiFiStatus.text = "wifi on"
@@ -183,7 +194,8 @@ class MainActivity : AppCompatActivity(){
         }
     }
 
-    fun onClickDiscover() {
+    private fun onClickDiscover() {
+
         if (ActivityCompat.checkSelfPermission(
                 this,
                 Manifest.permission.ACCESS_FINE_LOCATION
@@ -192,23 +204,21 @@ class MainActivity : AppCompatActivity(){
                 Manifest.permission.NEARBY_WIFI_DEVICES
             ) != PackageManager.PERMISSION_GRANTED
         ) {
-
         }
+
         mManager.discoverPeers(mChannel, object : WifiP2pManager.ActionListener {
             override fun onSuccess() {
                 textStatus.text = ("Discovery Started")
             }
-
             override fun onFailure(reason: Int) {
                 textStatus.text = ("Discovery not Started")
             }
-
-
         })
-
     }
 
+    private fun onClickSend(){
 
+    }
 
 
     val peerListListener = WifiP2pManager.PeerListListener { peerList ->

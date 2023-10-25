@@ -7,11 +7,18 @@
 
 
     <TextView
+        android:id="@+id/textNo"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:text="1" />
+
+    <TextView
         android:id="@+id/textMac"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:text="01" />
+        android:text="123" />
 
     <TextView
         android:id="@+id/textName"
