@@ -12,8 +12,8 @@ import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDevice
 import android.net.wifi.p2p.WifiP2pManager
 import android.os.Build
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.os.Environment
 import android.provider.Settings
 import android.util.Log
 import android.widget.Button
@@ -21,18 +21,24 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.core.content.FileProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.work.Data
+import androidx.work.OneTimeWorkRequest
+import androidx.work.WorkManager
 import com.example.myapplication2.databinding.ActivityMainBinding
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
+import java.io.File
+
 
 class MainActivity : AppCompatActivity(){
     private lateinit var WifiManager: WifiManager
     private lateinit var mManager:WifiP2pManager
     private lateinit var mChannel: WifiP2pManager.Channel
-
-
 
     private lateinit var mReceiver: BroadcastReceiver
     private lateinit var mIntentFilter: IntentFilter
@@ -40,25 +46,92 @@ class MainActivity : AppCompatActivity(){
     private lateinit var btnConnect:Button
     private lateinit var btnDiscover:Button
     private lateinit var btnSend:Button
+    private lateinit var btnStop:Button
+    private lateinit var btnFile:Button
+    private lateinit var btnNext:Button
+    private lateinit var btnAware:Button
+    private lateinit var btnShare:Button
 
     private lateinit var recyclerView: RecyclerView
     private lateinit var textStatus: TextView
     lateinit var textWiFiStatus: TextView
     private lateinit var writeMsg: EditText
     lateinit var connectionStatus:TextView
+    lateinit var receiveMsg : TextView
 
     private val peers = mutableListOf<WifiP2pDevice>()
-
     private var listAdapter = WiFiPeerListAdapter()
-    
+
     private val binding by lazy { ActivityMainBinding.inflate(layoutInflater) }
+
+    // 소켓 관련 변수들
+    private lateinit var socketHostAddress:String
+    private val socketPort:Int = 8888
+
+
+    private lateinit var sendWorkerManager:WorkManager
+
+    // ui관련 변수 (뷰모델)
+    private lateinit var socketViewModel: SocketViewModel
+    companion object{
+
+        val KEY_COUNT_VALUE = "test"
+        val ACTION_SEND_FILE = "app-release.apk"
+        val EXTRAS_FILE_PATH = "file_url"
+        val EXTRAS_GROUP_OWNER_ADDRESS = "go_host"
+        val EXTRAS_GROUP_OWNER_PORT = "go_port"
+        val SEND_TEXT = "sendText"
+        lateinit var REQUIRED_PERMISSIONS : Array<String>
+
+    }
+    init {
+        REQUIRED_PERMISSIONS = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_ADVERTISE,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.ACCESS_WIFI_STATE,
+                Manifest.permission.CHANGE_WIFI_STATE,
+                Manifest.permission.NEARBY_WIFI_DEVICES,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.MANAGE_EXTERNAL_STORAGE
+            )
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_ADVERTISE,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.ACCESS_WIFI_STATE,
+                Manifest.permission.CHANGE_WIFI_STATE,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.MANAGE_EXTERNAL_STORAGE
+            )
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> arrayOf(
+                Manifest.permission.BLUETOOTH,
+                Manifest.permission.BLUETOOTH_ADMIN,
+                Manifest.permission.ACCESS_WIFI_STATE,
+                Manifest.permission.CHANGE_WIFI_STATE,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            )
+            else -> arrayOf(
+                Manifest.permission.BLUETOOTH,
+                Manifest.permission.BLUETOOTH_ADMIN,
+                Manifest.permission.ACCESS_WIFI_STATE,
+                Manifest.permission.CHANGE_WIFI_STATE,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+        }
+    }
+
+    private val REQUEST_CODE_REQUIRED_PERMISSIONS = 1
 
 
     private lateinit var activityResult:ActivityResultLauncher<String>
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
-
 
         // 와이파이 리시버 등록
         // 수신받을 것들
@@ -72,14 +145,34 @@ class MainActivity : AppCompatActivity(){
         textWiFiStatus = findViewById(R.id.textWiFiStatus)
         writeMsg = findViewById(R.id.writeMsg)
         connectionStatus = findViewById(R.id.connectionStatus)
+        receiveMsg = findViewById(R.id.receiveMsg)
+        btnStop = findViewById(R.id.btnStop)
+        btnFile = findViewById(R.id.btnFile)
+        btnNext = findViewById(R.id.btnNext)
+        btnAware = findViewById(R.id.btnAware)
+        btnShare = findViewById(R.id.btnShare)
 
+        // 권한 설정
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M){
+            if(!arePermissionsGranted(REQUIRED_PERMISSIONS)){
+                requestPermissions(REQUIRED_PERMISSIONS, REQUEST_CODE_REQUIRED_PERMISSIONS)
+            }
+        }
 
-        //초기에 location은 permission 신청해야 함
-        activityResult = registerForActivityResult(ActivityResultContracts.RequestPermission()){}
-        activityResult.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            activityResult.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+        // 구글 플레이
+        var apiAvailability :GoogleApiAvailability = GoogleApiAvailability.getInstance()
+        var resultCode= apiAvailability.isGooglePlayServicesAvailable(this)
+        if( resultCode !=ConnectionResult.SUCCESS ){
+            if(apiAvailability.isUserResolvableError(resultCode)){
+                apiAvailability.getErrorDialog(this, resultCode, 9000)?.show()
+            }else{
+                // 지원하지 않을경우
+                Toast.makeText(
+                    this@MainActivity,
+                    "구글도 없다니..",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         }
 
         // 와이 파이 매니저로 주변 피어 검색하거나 원하는 것 찾기 가능
@@ -101,9 +194,44 @@ class MainActivity : AppCompatActivity(){
         // 클릭 이벤트
         btnConnect.setOnClickListener{onClickConnect()}
         btnDiscover.setOnClickListener{onClickDiscover()}
-        btnSend.setOnClickListener{}
+        btnSend.setOnClickListener{onClickSend()}
+        btnStop.setOnClickListener {onClickStop()}
+        btnFile.setOnClickListener {onClickFile()}
+        btnNext.setOnClickListener {onClickNext()}
+        btnAware.setOnClickListener { onClickAware() }
+        btnShare.setOnClickListener { onClickShare() }
 
+        socketViewModel = (application as App).socketViewModel
+        sendWorkerManager = WorkManager.getInstance(applicationContext)
+
+        socketViewModel.responseData.observe(this){
+            binding.receiveMsg.text = it.toString()
+        }
     }
+
+    private fun onClickShare() {
+        val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), ACTION_SEND_FILE)
+        val fileUri = FileProvider.getUriForFile(this, "com.example.myapplication2.file-provider", file)
+
+        Log.d("send","파일 보내기")
+
+        val sendIntent = Intent()
+        sendIntent.action = Intent.ACTION_SEND
+        sendIntent.putExtra(Intent.EXTRA_STREAM, fileUri)
+        sendIntent.type = "application/vnd.android.package-archive"
+        startActivity(sendIntent)
+    }
+
+
+    private fun arePermissionsGranted(permissions: Array<String>): Boolean {
+        for (permission in permissions) {
+            if (ActivityCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+                return false
+            }
+        }
+        return true
+    }
+
 
     override fun onResume() {
         super.onResume()
@@ -112,7 +240,6 @@ class MainActivity : AppCompatActivity(){
         }
     }
 
-    /* unregister the broadcast receiver */
     override fun onPause() {
         super.onPause()
         mReceiver?.also { receiver ->
@@ -137,7 +264,6 @@ class MainActivity : AppCompatActivity(){
             ) != PackageManager.PERMISSION_GRANTED
         ) {
         }
-        Log.d("test", "제발좀되라")
         
         mManager.connect(mChannel, config, object : WifiP2pManager.ActionListener {
 
@@ -161,21 +287,24 @@ class MainActivity : AppCompatActivity(){
 
     val connectionListener = WifiP2pManager.ConnectionInfoListener { info ->
         // InetAddress from WifiP2pInfo struct.
-        val groupOwnerAddress: String = info.groupOwnerAddress.hostAddress
+        socketHostAddress = info.groupOwnerAddress.hostAddress
 
-        // After the group negotiation, we can determine the group owner
         // (server).
         if (info.groupFormed && info.isGroupOwner) {
-            // Do whatever tasks are specific to the group owner.
-            // One common case is creating a group owner thread and accepting
-            // incoming connections.
             connectionStatus.text = "server"
 
+            // 소켓을 연결한다.
+            val workManager = WorkManager.getInstance(applicationContext)
+            // one time work request 생성
+            val connectRequest = OneTimeWorkRequest.Builder(MsgServerWorker::class.java)
+                .build()
+            // 실행
+            workManager.enqueue(connectRequest)
+
         } else if (info.groupFormed) {
-            // The other device acts as the peer (client). In this case,
-            // you'll want to create a peer thread that connects
-            // to the group owner.
+            // (client)
             connectionStatus.text = "client"
+            // 이때도 서버에게 연결하자
         }
     }
 
@@ -216,8 +345,62 @@ class MainActivity : AppCompatActivity(){
         })
     }
 
-    private fun onClickSend(){
 
+
+    private fun onClickFile(){
+        val data = Data.Builder()
+            .putInt(KEY_COUNT_VALUE, 125)
+            .putString(EXTRAS_FILE_PATH, ACTION_SEND_FILE)
+            .putString(EXTRAS_GROUP_OWNER_ADDRESS, socketHostAddress)
+            .putInt(EXTRAS_GROUP_OWNER_PORT, socketPort)
+            .build()
+
+//        // one time work request 생성
+        val uploadRequest = OneTimeWorkRequest.Builder(MsgSendWorker::class.java)
+            .setInputData(data)
+            .build()
+
+        // 실행
+        sendWorkerManager.enqueue(uploadRequest)
+        Log.d("file", ACTION_SEND_FILE)
+    }
+    private fun onClickSend(){
+        // 클릭했을때 워크 매니저를 실행시킨다
+
+        // worker에 넣을 데이터
+        var sendStr = writeMsg.text.toString()
+        // 연달아서 넣어야 됨
+        val data = Data.Builder()
+            .putInt(KEY_COUNT_VALUE, 125)
+            .putString(EXTRAS_FILE_PATH, ACTION_SEND_FILE)
+            .putString(EXTRAS_GROUP_OWNER_ADDRESS, socketHostAddress)
+            .putInt(EXTRAS_GROUP_OWNER_PORT, socketPort)
+            .putString(SEND_TEXT, sendStr)
+            .build()
+//
+//        // one time work request 생성
+        val uploadRequest = OneTimeWorkRequest.Builder(MsgSendWorker::class.java)
+            .setInputData(data)
+            .build()
+
+        // 실행
+        sendWorkerManager.enqueue(uploadRequest)
+    }
+    private fun onClickStop(){
+
+
+    }
+
+    private fun onClickAware() {
+        // 페이지 이동
+        val intent = Intent(this, WifiAwareActivity::class.java)
+        startActivity(intent)
+    }
+
+    private fun onClickNext(){
+        // 담페이지
+        val intent = Intent(this, NearbyActivity::class.java)
+        startActivity(intent)
     }
 
 
@@ -238,27 +421,19 @@ class MainActivity : AppCompatActivity(){
             peers.clear()
             peers.addAll(refreshedPeers)
 
-            // If an AdapterView is backed by this data, notify it
-            // of the change. For instance, if you have a ListView of
-            // available peers, trigger an update.
-
             listAdapter.listData.clear()
             listAdapter.listData.addAll(peers)
 
             listAdapter.notifyDataSetChanged()
             Log.d("search result","list Changed")
             Log.d("search result cnt", peers.size.toString())
-            // Perform any other updates needed based on the new list of
-            // peers connected to the Wi-Fi P2P network.
+
         }
 
         if (peers.isEmpty()) {
             Log.d("find peers result", "No devices found")
             return@PeerListListener
         }
-
-
     }
-
 
 }
